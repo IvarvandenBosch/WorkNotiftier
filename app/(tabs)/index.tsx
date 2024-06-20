@@ -1,70 +1,136 @@
-import { Image, StyleSheet, Platform } from 'react-native';
-
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import React, { useEffect } from "react";
+import { Text, View, StyleSheet, TextInput, Button } from "react-native";
+import * as SecureStore from "expo-secure-store";
+import { useState } from "react";
+import ICalParser from "ical-js-parser";
+import { DateTime } from "luxon";
+import * as Notifications from "expo-notifications";
 
 export default function HomeScreen() {
+  const [data, setData] = useState<any>(null);
+
+  const [notificationId, setNotificationId] = useState<string>("");
+
+  function parseTime(time: string) {
+    return DateTime.fromISO(time).toFormat("t");
+  }
+
+  function parseDate(date: string) {
+    return DateTime.fromISO(date).toFormat("LLL d, yyyy");
+  }
+
+  async function scheduleNotification(shift: any) {
+    const { status } = await Notifications.requestPermissionsAsync();
+
+    if (status === "granted") {
+      const id: string = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Upcoming Shift",
+          body: `You have a shift coming up: ${shift.summary} on ${parseDate(
+            shift.dtstamp.value
+          )} at ${parseTime(shift.dtstart.value)}`,
+        },
+        trigger: {
+          seconds: 5,
+        },
+      });
+
+      console.log(id);
+      setNotificationId(id);
+    } else {
+      console.log("Permission to send notifications was denied");
+    }
+    // Cancel the previous notification if it exists
+    if (notificationId) {
+      await Notifications.cancelScheduledNotificationAsync(notificationId);
+    }
+
+    // Schedule a new notification
+  }
+  function getUpcomingEvent(events: any[]) {
+    const now = DateTime.now();
+  
+    // Convert the event date to a Luxon DateTime object
+    const parseDateTime = (dateStr: string, timezone: any) => {
+      return DateTime.fromISO(dateStr, { zone: timezone });
+    };
+  
+    // Filter and sort events
+    const upcomingEvents = events
+      .map(event => {
+        const dtstart = parseDateTime(event.dtstart.value, event.dtstart.timezone);
+        return {...event, dtstart};
+      })
+      .filter(event => event.dtstart > now)
+      .sort((a, b) => a.dtstart - b.dtstart);
+  
+    // Return the first upcoming event
+    return upcomingEvents.length > 0 ? upcomingEvents[0] : null;
+  }
+
+  async function getL1ndaData() {
+    let result = await SecureStore.getItemAsync("l1ndaLink");
+    fetch(`${result}`)
+      .then((response) => response.text())
+      .then((data) => {
+        const upcomingIcalEvent = getUpcomingEvent(ICalParser.toJSON(data).events)
+        setData(upcomingIcalEvent);
+        scheduleNotification(upcomingIcalEvent);
+      })
+      .catch((error) => {
+        console.error("Error fetching data:", error);
+      });
+  }
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({ ios: 'cmd + d', android: 'cmd + m' })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <View style={styles.container}>
+      <Button title="Get L1nda Data" onPress={getL1ndaData} />
+      <Text>
+        Next Shift:
+        {data?.summary}
+      </Text>
+      <Text>
+        Attendee:
+        {data?.attendee}
+      </Text>
+      <Text>
+        Organizer:
+        {data?.organizer}
+      </Text>
+      <Text>
+        Start Time:
+        {parseTime(data?.dtstart["value"])}
+      </Text>
+      <Text>
+        End Time:
+        {parseTime(data?.dtend["value"])}
+      </Text>
+      <Text>
+        Date:
+        {parseDate(data?.dtstamp["value"])}
+      </Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    paddingTop: 10,
+    backgroundColor: "#ecf0f1",
+    padding: 8,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  paragraph: {
+    marginTop: 34,
+    margin: 24,
+    fontSize: 18,
+    fontWeight: "bold",
+    textAlign: "center",
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  textInput: {
+    height: 35,
+    borderColor: "gray",
+    borderWidth: 0.5,
+    padding: 4,
   },
 });
