@@ -5,10 +5,24 @@ import { useState } from "react";
 import ICalParser from "ical-js-parser";
 import { DateTime } from "luxon";
 import * as Notifications from "expo-notifications";
+import * as BackgroundFetch from "expo-background-fetch";
+import * as TaskManager from "expo-task-manager";
+
+const BACKGROUND_FETCH_TASK = "background-fetch";
+
+TaskManager.defineTask(BACKGROUND_FETCH_TASK, async () => {
+  const now = Date.now();
+
+  console.log(
+    `Got background fetch call at date: ${new Date(now).toISOString()}`
+  );
+
+  // Be sure to return the successful result type!
+  return BackgroundFetch.BackgroundFetchResult.NewData;
+});
 
 export default function HomeScreen() {
   const [data, setData] = useState<any>(null);
-
   const [notificationId, setNotificationId] = useState<string>("");
 
   function parseTime(time: string) {
@@ -17,6 +31,18 @@ export default function HomeScreen() {
 
   function parseDate(date: string) {
     return DateTime.fromISO(date).toFormat("LLL d, yyyy");
+  }
+
+
+  // 2. Register the task at some point in your app by providing the same name,
+  // and some configuration options for how the background fetch should behave
+  // Note: This does NOT need to be in the global scope and CAN be used in your React components!
+  async function registerBackgroundFetchAsync() {
+    return BackgroundFetch.registerTaskAsync(BACKGROUND_FETCH_TASK, {
+      minimumInterval: 2, // 60 seconds
+      stopOnTerminate: false, // android only,
+      startOnBoot: true, // android only
+    });
   }
 
   async function scheduleNotification(shift: any) {
@@ -49,21 +75,24 @@ export default function HomeScreen() {
   }
   function getUpcomingEvent(events: any[]) {
     const now = DateTime.now();
-  
+
     // Convert the event date to a Luxon DateTime object
     const parseDateTime = (dateStr: string, timezone: any) => {
       return DateTime.fromISO(dateStr, { zone: timezone });
     };
-  
+
     // Filter and sort events
     const upcomingEvents = events
-      .map(event => {
-        const dtstart = parseDateTime(event.dtstart.value, event.dtstart.timezone);
-        return {...event, dtstart};
+      .map((event) => {
+        const dtstart = parseDateTime(
+          event.dtstart.value,
+          event.dtstart.timezone
+        );
+        return { ...event, dtstart };
       })
-      .filter(event => event.dtstart > now)
+      .filter((event) => event.dtstart > now)
       .sort((a, b) => a.dtstart - b.dtstart);
-  
+
     // Return the first upcoming event
     return upcomingEvents.length > 0 ? upcomingEvents[0] : null;
   }
@@ -73,7 +102,9 @@ export default function HomeScreen() {
     fetch(`${result}`)
       .then((response) => response.text())
       .then((data) => {
-        const upcomingIcalEvent = getUpcomingEvent(ICalParser.toJSON(data).events)
+        const upcomingIcalEvent = getUpcomingEvent(
+          ICalParser.toJSON(data).events
+        );
         setData(upcomingIcalEvent);
         scheduleNotification(upcomingIcalEvent);
       })
@@ -81,9 +112,11 @@ export default function HomeScreen() {
         console.error("Error fetching data:", error);
       });
   }
+
   return (
     <View style={styles.container}>
       <Button title="Get L1nda Data" onPress={getL1ndaData} />
+      <Button title="Toggle" onPress={registerBackgroundFetchAsync} />
       <Text>
         Next Shift:
         {data?.summary}
